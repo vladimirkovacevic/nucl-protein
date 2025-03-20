@@ -1,0 +1,19 @@
+{
+    "dataset_name": "vladak/anthem_hla_seq",
+    "cache_mod1_key": "dna_key",
+    "cache_mod2_key": "",
+    "mod1_sequence_name": "Sequence",
+    "mod2_sequence_name": "peptide",
+    "mod1_model_name": "InstaDeepAI/nucleotide-transformer-2.5b-multi-species",
+    "mod2_model_name": "facebook/esm2_t33_650M_UR50D",
+    "mod1_input_ids_name": "dna_input_ids",
+    "mod2_input_ids_name": "protein_input_ids",
+    "mod1_attention_mask_name": "dna_attention_mask",
+    "mod2_attention_mask_name": "protein_attention_mask",
+    "warmup_steps": 1000,
+    "epochs": 5,
+    "batch_size": 64,
+    "lr": 2e-4,
+    "wandb_project": "nuclprot",
+    "wandb_name": "script crossmod"
+  }
