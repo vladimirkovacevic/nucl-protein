@@ -5,8 +5,8 @@ import datasets
 from crossmod.constants import (
     CACHE_MOD1_KEY,
     CACHE_MOD2_KEY,
-    SEQUENCE_MOD1_KEY,
-    SEQUENCE_MOD2_KEY,
+    MOD1_SEQUENCE_NAME,
+    MOD2_SEQUENCE_NAME,
 )
 
 
@@ -19,7 +19,7 @@ def get_sequence_id(example, cache_key, sequence_key):
     return example
 
 
-def prepare_dataset(dataset_hf_name: str, cfg) -> datasets.DatasetDict:
+def get_dataset(dataset_hf_name: str, cfg) -> datasets.DatasetDict:
     """Pull dataset from huggingface and prepare it.
 
     Optionally generate keys that will be used for caching.
@@ -33,16 +33,27 @@ def prepare_dataset(dataset_hf_name: str, cfg) -> datasets.DatasetDict:
 
     dataset = datasets.load_dataset(dataset_hf_name)
 
-    if CACHE_MOD1_KEY in cfg and SEQUENCE_MOD1_KEY in cfg:
-        ds = ds.map(
+    from datasets import DatasetDict
+
+    dataset = DatasetDict(
+        {
+            split: dataset[split]
+            .shuffle(seed=42)
+            .select(range(int(0.02 * len(dataset[split]))))
+            for split in dataset
+        }
+    )
+
+    if cfg[CACHE_MOD1_KEY] and MOD1_SEQUENCE_NAME in cfg:
+        dataset = dataset.map(
             lambda example: get_sequence_id(
-                example, cfg[CACHE_MOD1_KEY], cfg[SEQUENCE_MOD1_KEY]
+                example, cfg[CACHE_MOD1_KEY], cfg[MOD1_SEQUENCE_NAME]
             )
         )
-    if CACHE_MOD2_KEY in cfg and SEQUENCE_MOD2_KEY in cfg:
-        ds = ds.map(
+    if cfg[CACHE_MOD2_KEY] and MOD2_SEQUENCE_NAME in cfg:
+        dataset = dataset.map(
             lambda example: get_sequence_id(
-                example, cfg[CACHE_MOD2_KEY], cfg[SEQUENCE_MOD2_KEY]
+                example, cfg[CACHE_MOD2_KEY], cfg[MOD2_SEQUENCE_NAME]
             )
         )
 
