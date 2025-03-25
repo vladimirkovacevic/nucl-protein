@@ -1,6 +1,7 @@
 import hashlib
 
 import datasets
+from datasets import DatasetDict
 
 from crossmod.constants import (
     CACHE_MOD1_KEY,
@@ -33,17 +34,6 @@ def get_dataset(dataset_hf_name: str, cfg) -> datasets.DatasetDict:
 
     dataset = datasets.load_dataset(dataset_hf_name)
 
-    from datasets import DatasetDict
-
-    dataset = DatasetDict(
-        {
-            split: dataset[split]
-            .shuffle(seed=42)
-            .select(range(int(0.02 * len(dataset[split]))))
-            for split in dataset
-        }
-    )
-
     if cfg[CACHE_MOD1_KEY] and MOD1_SEQUENCE_NAME in cfg:
         dataset = dataset.map(
             lambda example: get_sequence_id(
@@ -57,4 +47,24 @@ def get_dataset(dataset_hf_name: str, cfg) -> datasets.DatasetDict:
             )
         )
 
+    return dataset
+
+
+def subsample_dataset(
+    dataset: datasets.DatasetDict, percentage: float
+) -> datasets.DatasetDict:
+    """Intended for testing purposes to decrease dataset size.
+
+    Args:
+        dataset: Huggingface dataset dict.
+        percentage: In range [0,1]
+    """
+    dataset = DatasetDict(
+        {
+            split: dataset[split]
+            .shuffle(seed=42)
+            .select(range(int(percentage * len(dataset[split]))))
+            for split in dataset
+        }
+    )
     return dataset
