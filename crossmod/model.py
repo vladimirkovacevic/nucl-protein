@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
-from embedding_cache import EmbeddingCache
-from model_registry import ModelRegistry
+
+from crossmod.embedding_cache import EmbeddingCache
+from crossmod.model_registry import ModelRegistry
 
 
 class CrossAttentionBlock(nn.Module):

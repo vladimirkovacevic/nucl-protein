@@ -1,8 +1,9 @@
 import datasets
 import torch
 import torch.nn.functional as F
-from model_registry import ModelRegistry
 from tqdm import tqdm
+
+from crossmod.model_registry import ModelRegistry
 
 
 class EmbeddingCache(torch.utils.data.Dataset):
