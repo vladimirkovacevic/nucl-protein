@@ -51,7 +51,7 @@ def get_dataset(dataset_hf_name: str, cfg) -> datasets.DatasetDict:
 
 
 def subsample_dataset(
-    dataset: datasets.DatasetDict, percentage: float
+    dataset: datasets.DatasetDict, percentage: float = 0.02
 ) -> datasets.DatasetDict:
     """Intended for testing purposes to decrease dataset size.
 
