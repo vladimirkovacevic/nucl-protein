@@ -1,10 +1,10 @@
 {
-    "dataset_name": "vladak/anthem_hla_seq",
+    "dataset_name": "vladak/iedb-2013",
     "cache_mod1_key": "",
-    "cache_mod2_key": "dna_key",
+    "cache_mod2_key": "",
     "mod1_sequence_name": "Peptide",
     "mod2_sequence_name": "Sequence",
-    "target": "Label",
+    "target": "Log_meas",
     "mod1_model_name": "facebook/esm2_t33_650M_UR50D",
     "mod2_model_name": "InstaDeepAI/nucleotide-transformer-2.5b-multi-species",
     "mod1_input_ids_name": "protein_input_ids",
@@ -16,6 +16,6 @@
     "batch_size": 64,
     "lr": 1e-4,
     "wandb_project": "nuclprot",
-    "wandb_name": "script crossmod rerun",
-    "task_type": "classification"
+    "wandb_name": "script crossmod regression BIG",
+    "task_type": "regression"
   }

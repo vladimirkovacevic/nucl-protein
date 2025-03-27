@@ -11,9 +11,9 @@ from crossmod.constants import (
     DATASET_NAME,
     EPOCHS,
     LEARNING_RATE,
+    MOD1_MODEL_NAME,
     MOD2_ATTN_MASK_NAME,
     MOD2_INPUT_IDS_NAME,
-    MOD1_MODEL_NAME,
     MOD2_MODEL_NAME,
     WANDB_NAME,
     WANDB_PROJECT,
@@ -28,7 +28,7 @@ from crossmod.features import (
 )
 from crossmod.model import BiCrossAttentionModel
 from crossmod.model_registry import ModelRegistry
-from crossmod.train import evaluate_model, train_model
+from crossmod.train import evaluate_model_regression, train_model
 
 
 @click.command()
@@ -86,22 +86,22 @@ def main(config_path, wandb_key):
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dna_cache = EmbeddingCache(
-        data=tokenized_dataset["train"],
-        key=cfg[CACHE_MOD2_KEY],
-        input_ids_name=cfg[MOD2_INPUT_IDS_NAME],
-        attention_mask_name=cfg[MOD2_ATTN_MASK_NAME],
-        emb_model_name=cfg[MOD2_MODEL_NAME],
-        device=device,
-    )
+    # dna_cache = EmbeddingCache(
+    #     data=tokenized_dataset["train"],
+    #     key=cfg[CACHE_MOD2_KEY],
+    #     input_ids_name=cfg[MOD2_INPUT_IDS_NAME],
+    #     attention_mask_name=cfg[MOD2_ATTN_MASK_NAME],
+    #     emb_model_name=cfg[MOD2_MODEL_NAME],
+    #     device=device,
+    # )
     model = BiCrossAttentionModel(
         modality1_model_name=mod1_model_name,
         modality2_model_name=mod2_model_name,
-        modality2_cache=dna_cache,
+        # modality2_cache=dna_cache,
     ).to(device)
 
     train_model(model, train_dataloader, val_dataloader, cfg, device)
-    evaluate_model(model, test_dataloader, cfg, device)
+    evaluate_model_regression(model, test_dataloader, cfg, device)
 
     print("Finished training...")
     # TODO Implement model saving but only trainable part

@@ -1,5 +1,7 @@
 # all these fields expected in config file, this is just to avoid using
 # hardcoded strings everywhere
+from enum import Enum
+
 DATASET_NAME = "dataset_name"
 CACHE_MOD1_KEY = "cache_mod1_key"
 SEQUENCE_MOD1_KEY = "sequence_mod1_key"
@@ -20,3 +22,9 @@ LEARNING_RATE = "lr"
 WANDB_PROJECT = "wandb_project"
 WANDB_NAME = "wandb_name"
 TARGET = "target"
+TASK_TYPE = "task_type"
+
+
+class TaskType(Enum):
+    CLASSIFICATION = "classification"
+    REGRESSION = "regression"
