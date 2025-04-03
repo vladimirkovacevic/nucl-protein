@@ -13,6 +13,7 @@ from sklearn.metrics import (
     r2_score,
     recall_score,
     roc_auc_score,
+    root_mean_squared_error,
 )
 from tqdm import tqdm
 
@@ -31,6 +32,7 @@ from crossmod.constants import (
     WARMUP_STEPS,
     TaskType,
 )
+from crossmod.utils import coverage_score
 
 
 def train_model(model, train_dataloader, val_dataloader, cfg, device):
@@ -219,9 +221,16 @@ def evaluate_model_regression(model, test_loader, cfg, device):
     all_targets = torch.cat(all_targets)
 
     loss = torch.nn.MSELoss()
-    logging.info(f"Test set mean squared error (MSE): {loss(all_predictions, all_targets)}")
+    logging.info(
+        f"Test set mean squared error (MSE): {loss(all_predictions, all_targets)}"
+    )
 
     mse = mean_squared_error(all_targets.cpu(), all_predictions.cpu())
     mae = mean_absolute_error(all_targets.cpu(), all_predictions.cpu())
     r2 = r2_score(all_targets.cpu(), all_predictions.cpu())
-    logging.info(f"MSE: {mse}, MAE: {mae}, R²: {r2}")
+    rmse = root_mean_squared_error(all_targets.cpu(), all_predictions.cpu())
+    coverage = coverage_score(all_targets.cpu(), all_predictions.cpu(), tolerance=0.5)
+
+    logging.info(
+        f"MSE: {mse}, MAE: {mae}, R²: {r2} RMSE: {rmse} Coverage +-0.5 {coverage}%"
+    )
