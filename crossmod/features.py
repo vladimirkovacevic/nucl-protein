@@ -89,7 +89,7 @@ def train_test_validation_split(dataset: datasets.DatasetDict) -> datasets.Datas
         DatasetDict with train, test and validation splits.
     """
     dataset_test = dataset["test"]
-    dataset_test_val = dataset_test.train_test_split(test_size=0.5)
+    dataset_test_val = dataset_test.train_test_split(test_size=0.5, seed=42)
 
     dataset_dict = {
         "train": dataset["train"],
