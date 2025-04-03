@@ -120,8 +120,6 @@ def tokenize_data(dataset: datasets.DatasetDict, cfg):
     """Apply tokenizers for both modalities."""
     modality1_tokenizer = ModelRegistry.get_tokenizer(cfg[MOD1_MODEL_NAME])
     modality2_tokenizer = ModelRegistry.get_tokenizer(cfg[MOD2_MODEL_NAME])
-    print(f"Modality 1 tokenizer is fast: {modality1_tokenizer.is_fast}")
-    print(f"Modality 2 tokenizer is fast: {modality2_tokenizer.is_fast}")
 
     tokenized_dataset = dataset.map(
         lambda examples: tokenize_modality(
