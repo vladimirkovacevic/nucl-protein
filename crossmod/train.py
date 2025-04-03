@@ -1,3 +1,4 @@
+import csv
 import logging
 
 import torch
@@ -172,6 +173,12 @@ def evaluate_model_classification(model, test_dataloader, cfg, device):
 
     all_predictions = torch.cat(all_predictions).cpu()
     all_targets = torch.cat(all_targets).cpu()
+    write_to_csv(
+        all_targets.cpu().numpy(),
+        all_predictions.cpu().numpy(),
+        cfg[TARGET],
+        "classification_results.csv",
+    )
 
     accuracy = accuracy_score(all_targets, all_predictions)
     precision = precision_score(all_targets, all_predictions)
@@ -220,6 +227,13 @@ def evaluate_model_regression(model, test_loader, cfg, device):
     all_predictions = torch.cat(all_predictions)
     all_targets = torch.cat(all_targets)
 
+    write_to_csv(
+        all_targets.cpu().numpy(),
+        all_predictions.cpu().numpy(),
+        cfg[TARGET],
+        "regression_results.csv",
+    )
+
     loss = torch.nn.MSELoss()
     logging.info(
         f"Test set mean squared error (MSE): {loss(all_predictions, all_targets)}"
@@ -232,5 +246,16 @@ def evaluate_model_regression(model, test_loader, cfg, device):
     coverage = coverage_score(all_targets.cpu(), all_predictions.cpu(), tolerance=0.5)
 
     logging.info(
-        f"MSE: {mse}, MAE: {mae}, R²: {r2} RMSE: {rmse} Coverage +-0.5 {coverage}%"
+        f"MSE: {mse:.3f}, MAE: {mae:.3f}, R²: {r2:.3f} RMSE: {rmse:.3f} Coverage +-0.5 {coverage:.3f}%"
     )
+
+
+def write_to_csv(y_true, y_pred, target_name, filename):
+    with open(filename, mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([target_name, "predictions"])
+
+        for true, pred in zip(y_true, y_pred):
+            writer.writerow([pred, true])
+
+    logging.info(f"Results saved to {filename}")
