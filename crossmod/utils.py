@@ -1,5 +1,6 @@
 import subprocess as sp
 
+import numpy as np
 import torch
 
 MB = 1024 * 1024
@@ -59,3 +60,20 @@ def check_gpu_used_memory():
         sp.check_output(command.split()).decode("ascii").split("\n")[:-1][1:]
     )
     print("[GPUs]: ", memory_used_info)
+
+
+def coverage_score(y_true, y_pred, tolerance=0.5):
+    """
+    Computes the percentage of predictions within the given tolerance of the true values.
+
+    Args:
+        y_true (array-like): True target values.
+        y_pred (array-like): Predicted values.
+        tolerance (float): Allowed deviation from the true values.
+
+    Returns:
+        float: Percentage of predictions within the tolerance.
+    """
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    within_tolerance = np.abs(y_true - y_pred) <= tolerance
+    return np.mean(within_tolerance) * 100
