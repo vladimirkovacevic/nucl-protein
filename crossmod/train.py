@@ -1,3 +1,6 @@
+import csv
+import logging
+
 import torch
 import torch.nn as nn
 from sklearn.metrics import (
@@ -11,6 +14,7 @@ from sklearn.metrics import (
     r2_score,
     recall_score,
     roc_auc_score,
+    root_mean_squared_error,
 )
 from tqdm import tqdm
 
@@ -29,6 +33,7 @@ from crossmod.constants import (
     WARMUP_STEPS,
     TaskType,
 )
+from crossmod.utils import coverage_score
 
 
 def train_model(model, train_dataloader, val_dataloader, cfg, device):
@@ -61,7 +66,7 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
     ACCUMULATION_STEPS = 1  # effectively turned off
 
     for epoch in range(cfg[EPOCHS]):
-        print(f"Epoch: {epoch + 1}/{cfg[EPOCHS]}")
+        logging.info(f"Epoch: {epoch + 1}/{cfg[EPOCHS]}")
         model.train()
         train_loss = 0.0
         train_progress = tqdm(train_dataloader, desc="Training...")
@@ -129,7 +134,7 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
         val_loss /= len(val_dataloader)
         wandb.log({"val_loss": val_loss})
         wandb.log({"train_loss": train_loss})
-        print(
+        logging.info(
             f"Epoch: {epoch} - Train loss: {train_loss} - Validation loss: {val_loss}"
         )
 
@@ -168,6 +173,12 @@ def evaluate_model_classification(model, test_dataloader, cfg, device):
 
     all_predictions = torch.cat(all_predictions).cpu()
     all_targets = torch.cat(all_targets).cpu()
+    write_to_csv(
+        all_targets.cpu().numpy(),
+        all_predictions.cpu().numpy(),
+        cfg[TARGET],
+        "classification_results.csv",
+    )
 
     accuracy = accuracy_score(all_targets, all_predictions)
     precision = precision_score(all_targets, all_predictions)
@@ -175,13 +186,13 @@ def evaluate_model_classification(model, test_dataloader, cfg, device):
     f1 = f1_score(all_targets, all_predictions)
     auc = roc_auc_score(all_targets, all_predictions)
     mcc = matthews_corrcoef(all_targets, all_predictions)
-    print(f"Accuracy: {accuracy:.4f}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall: {recall:.4f}")
-    print(f"F1-score: {f1:.4f}")
-    print(f"ROC-AUC score: {auc:.4f}")
-    print(f"MCC score: {mcc:.4f}")
-    print(classification_report(all_targets, all_predictions))
+    logging.info(f"Accuracy: {accuracy:.4f}")
+    logging.info(f"Precision: {precision:.4f}")
+    logging.info(f"Recall: {recall:.4f}")
+    logging.info(f"F1-score: {f1:.4f}")
+    logging.info(f"ROC-AUC score: {auc:.4f}")
+    logging.info(f"MCC score: {mcc:.4f}")
+    logging.info(classification_report(all_targets, all_predictions))
 
 
 def evaluate_model_regression(model, test_loader, cfg, device):
@@ -216,10 +227,35 @@ def evaluate_model_regression(model, test_loader, cfg, device):
     all_predictions = torch.cat(all_predictions)
     all_targets = torch.cat(all_targets)
 
+    write_to_csv(
+        all_targets.cpu().numpy(),
+        all_predictions.cpu().numpy(),
+        cfg[TARGET],
+        "regression_results.csv",
+    )
+
     loss = torch.nn.MSELoss()
-    print(f"Test set mean squared error (MSE): {loss(all_predictions, all_targets)}")
+    logging.info(
+        f"Test set mean squared error (MSE): {loss(all_predictions, all_targets)}"
+    )
 
     mse = mean_squared_error(all_targets.cpu(), all_predictions.cpu())
     mae = mean_absolute_error(all_targets.cpu(), all_predictions.cpu())
     r2 = r2_score(all_targets.cpu(), all_predictions.cpu())
-    print(f"MSE: {mse}, MAE: {mae}, R²: {r2}")
+    rmse = root_mean_squared_error(all_targets.cpu(), all_predictions.cpu())
+    coverage = coverage_score(all_targets.cpu(), all_predictions.cpu(), tolerance=0.5)
+
+    logging.info(
+        f"MSE: {mse:.3f}, MAE: {mae:.3f}, R²: {r2:.3f} RMSE: {rmse:.3f} Coverage +-0.5 {coverage:.3f}%"
+    )
+
+
+def write_to_csv(y_true, y_pred, target_name, filename):
+    with open(filename, mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([target_name, "predictions"])
+
+        for true, pred in zip(y_true, y_pred):
+            writer.writerow([pred, true])
+
+    logging.info(f"Results saved to {filename}")
