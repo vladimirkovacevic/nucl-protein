@@ -1,3 +1,5 @@
+import logging
+
 import torch
 import torch.nn as nn
 
@@ -121,7 +123,7 @@ class BiCrossAttentionModel(nn.Module):
             ]
         )
 
-        self.ffn_class_head = nn.Sequential(
+        self.ffn_head = nn.Sequential(
             nn.Linear(2 * self.modality1_embedding_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
@@ -206,5 +208,26 @@ class BiCrossAttentionModel(nn.Module):
 
         # Combine embeddings
         combined = torch.cat([modality1_embedding, modality2_embedding], dim=1)
-        logits = self.ffn_class_head(combined)
+        logits = self.ffn_head(combined)
         return logits
+
+
+def save_model_trainable_part(model, filename="trained_model.pth"):
+    model_state_dict = {
+        "layers": model.layers.state_dict(),
+        "project_to_common": model.project_to_common.state_dict(),
+        "ffn_head": model.ffn_head.state_dict(),
+    }
+    torch.save(model_state_dict, filename)
+    logging.info(f"✅ Trained model saved to {filename}")
+
+
+def load_trained_model(model, filename):
+    model_state_dict = torch.load(filename)
+
+    model.layers.load_state_dict(model_state_dict["layers"])
+    model.project_to_common.load_state_dict(model_state_dict["project_to_common"])
+    model.ffn_class_head.load_state_dict(model_state_dict["ffn_head"])
+
+    logging.info(f"✅ Trained model loaded from {filename}")
+    return model

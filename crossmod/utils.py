@@ -1,5 +1,4 @@
-import json
-import os
+import logging
 import subprocess as sp
 
 import matplotlib.pyplot as plt
@@ -11,17 +10,11 @@ import seaborn as sns
 import torch
 from plotly.subplots import make_subplots
 from sklearn.metrics import (
-    ConfusionMatrixDisplay,
-    accuracy_score,
     auc,
     average_precision_score,
     classification_report,
     confusion_matrix,
-    f1_score,
-    matthews_corrcoef,
     precision_recall_curve,
-    precision_score,
-    recall_score,
     roc_curve,
 )
 
@@ -219,7 +212,7 @@ def regression_plots_plotly(y_true, y_pred, filename="regression_diagnostics.htm
 
     # Save to a single HTML file
     fig.write_html(filename)
-    print(f"✅ Regression diagnostics saved to '{filename}'")
+    logging.info(f"✅ Regression diagnostics saved to '{filename}'")
 
 
 def classification_plots_plotly(
@@ -331,4 +324,4 @@ def classification_plots_plotly(
 
     # Save to a single HTML file
     fig.write_html(filename)
-    print(f"✅ All plots saved to '{filename}'")
+    logging.info(f"✅ All plots saved to '{filename}'")

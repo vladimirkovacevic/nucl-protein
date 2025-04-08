@@ -26,7 +26,7 @@ from crossmod.features import (
     tokenize_data,
     train_test_validation_split,
 )
-from crossmod.model import BiCrossAttentionModel
+from crossmod.model import BiCrossAttentionModel, save_model_trainable_part
 from crossmod.model_registry import ModelRegistry
 from crossmod.train import evaluate_model_regression, train_model
 
@@ -129,7 +129,8 @@ def main(config_path, wandb_key):
     evaluate_model_regression(model, test_dataloader, cfg, device)
 
     logging.info("Finished training...")
-    # TODO Implement model saving but only trainable part
+
+    save_model_trainable_part(model, "trained_regression.pth")
 
 
 if __name__ == "__main__":
