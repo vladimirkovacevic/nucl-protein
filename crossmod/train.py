@@ -33,7 +33,11 @@ from crossmod.constants import (
     WARMUP_STEPS,
     TaskType,
 )
-from crossmod.utils import coverage_score
+from crossmod.utils import (
+    classification_plots_plotly,
+    coverage_score,
+    regression_plots_plotly,
+)
 
 
 def train_model(model, train_dataloader, val_dataloader, cfg, device):
@@ -141,6 +145,7 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
 
 def evaluate_model_classification(model, test_dataloader, cfg, device):
     model.eval()
+    all_proba = []
     all_predictions = []
     all_targets = []
     test_progress = tqdm(test_dataloader, desc="Test set")
@@ -170,15 +175,18 @@ def evaluate_model_classification(model, test_dataloader, cfg, device):
             preds = (probs > 0.5).float()
             all_targets.append(targets)
             all_predictions.append(preds)
+            all_proba.append(probs)
 
-    all_predictions = torch.cat(all_predictions).cpu()
-    all_targets = torch.cat(all_targets).cpu()
+    all_predictions = torch.cat(all_predictions).cpu().numpy().flatten()
+    all_targets = torch.cat(all_targets).cpu().numpy().flatten()
+    all_proba = torch.cat(all_proba).cpu().numpy().flatten()
     write_to_csv(
-        all_targets.cpu().numpy(),
-        all_predictions.cpu().numpy(),
+        all_targets,
+        all_predictions,
         cfg[TARGET],
         "classification_results.csv",
     )
+    classification_plots_plotly(all_targets, all_predictions, all_proba)
 
     accuracy = accuracy_score(all_targets, all_predictions)
     precision = precision_score(all_targets, all_predictions)
@@ -228,10 +236,13 @@ def evaluate_model_regression(model, test_loader, cfg, device):
     all_targets = torch.cat(all_targets)
 
     write_to_csv(
-        all_targets.cpu().numpy(),
-        all_predictions.cpu().numpy(),
+        all_targets.cpu().numpy().flatten(),
+        all_predictions.cpu().numpy().flatten(),
         cfg[TARGET],
         "regression_results.csv",
+    )
+    regression_plots_plotly(
+        all_targets.cpu().numpy().flatten(), all_predictions.cpu().numpy().flatten()
     )
 
     loss = torch.nn.MSELoss()
@@ -243,10 +254,11 @@ def evaluate_model_regression(model, test_loader, cfg, device):
     mae = mean_absolute_error(all_targets.cpu(), all_predictions.cpu())
     r2 = r2_score(all_targets.cpu(), all_predictions.cpu())
     rmse = root_mean_squared_error(all_targets.cpu(), all_predictions.cpu())
-    coverage = coverage_score(all_targets.cpu(), all_predictions.cpu(), tolerance=0.5)
+    coverage05 = coverage_score(all_targets.cpu(), all_predictions.cpu(), tolerance=0.5)
+    coverage1 = coverage_score(all_targets.cpu(), all_predictions.cpu(), tolerance=1)
 
     logging.info(
-        f"MSE: {mse:.3f}, MAE: {mae:.3f}, R²: {r2:.3f} RMSE: {rmse:.3f} Coverage +-0.5 {coverage:.3f}%"
+        f"MSE: {mse:.3f}, MAE: {mae:.3f}, R²: {r2:.3f} RMSE: {rmse:.3f} Coverage +-0.5 {coverage05:.3f}% Coverage +-1 {coverage1:.3f}"
     )
 
 
