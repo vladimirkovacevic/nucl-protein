@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from crossmod.embedding_cache import EmbeddingCache
 from crossmod.model_registry import ModelRegistry
-
+from crossmod.simple_model import SimpleModel
 
 class CrossAttentionBlock(nn.Module):
     def __init__(self, embed_dim: int = 512, num_heads: int = 8, dropout: float = 0.1):
@@ -82,35 +82,52 @@ class BiCrossAttentionModel(nn.Module):
         modality2_model_name: str,
         num_layers: int = 3,
         hidden_dim: int = 1024,
+        modality1_emb_dim: int= 1280,
+        modality2_emb_dim: int= 2560,
         modality1_cache: EmbeddingCache | None = None,
         modality2_cache: EmbeddingCache | None = None,
         load_submodels: bool = True,
     ):
         super().__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+        self.load_submodels = load_submodels
+ 
         if load_submodels:
             self.modality1_model, self.modality1_tokenizer = self._load_model(
                 modality1_model_name
             )
 
-        if load_submodels:
             self.modality2_model, self.modality2_tokenizer = self._load_model(
                 modality2_model_name
             )
+        
+            for param in self.modality1_model.parameters():
+                param.requires_grad = False
+
+            for param in self.modality2_model.parameters():
+                param.requires_grad = False
+
+            self.modality1_embedding_dim = self.modality1_model.config.hidden_size
+            self.modality2_embedding_dim = self.modality2_model.config.hidden_size
+
+        else:
+            self.modality1_embedding_dim = modality1_emb_dim
+            self.modality2_embedding_dim = modality2_emb_dim
+
+            self.modality1_tokenizer = ModelRegistry.get_tokenizer(modality1_model_name)
+            modality1_vocab_size = self.modality1_tokenizer.vocab_size
+            self.modality1_model = SimpleModel(modality1_vocab_size, self.modality1_embedding_dim, self.device).to(self.device)
+            self.modality1_model.train()
+
+            self.modality2_tokenizer = ModelRegistry.get_tokenizer(modality2_model_name)
+            modality2_vocab_size = self.modality2_tokenizer.vocab_size
+            self.modality2_model = SimpleModel(modality2_vocab_size, self.modality2_embedding_dim, self.device).to(self.device)
+            self.modality2_model.train()
 
         self.modality1_cache = modality1_cache
         self.modality2_cache = modality2_cache
 
-        for param in self.modality1_model.parameters():
-            param.requires_grad = False
-
-        for param in self.modality2_model.parameters():
-            param.requires_grad = False
-
-        self.modality1_embedding_dim = self.modality1_model.config.hidden_size
-        self.modality2_embedding_dim = self.modality2_model.config.hidden_size
-
+        
         # Projecting to the size of Modality1 model
         self.project_to_common = nn.Linear(
             self.modality2_embedding_dim, self.modality1_embedding_dim
@@ -157,8 +174,8 @@ class BiCrossAttentionModel(nn.Module):
             # perform in FP16 for lower memory usage (matmuls)
             with torch.cuda.amp.autocast():
                 with torch.no_grad():
-                    modality1_outputs = self.modality1_model(**modality1_inputs)
-                    modality1_embedding = modality1_outputs.last_hidden_state
+                    modality1_embedding = self.modality1_model(**modality1_inputs)
+                    if self.load_submodels: modality1_embedding = modality1_embedding.last_hidden_state
 
         special_tokens_mask_modality1 = (
             (modality1_inputs["input_ids"] == self.modality1_tokenizer.cls_token_id)
@@ -179,8 +196,8 @@ class BiCrossAttentionModel(nn.Module):
             # perform in FP16 for lower memory usage (matmuls)
             with torch.cuda.amp.autocast():
                 with torch.no_grad():
-                    modality2_outputs = self.modality2_model(**modality2_inputs)
-                    modality2_embedding = modality2_outputs.last_hidden_state
+                    modality2_embedding = self.modality2_model(**modality2_inputs)
+                    if self.load_submodels: modality2_embedding = modality2_embedding.last_hidden_state
 
         special_tokens_mask_modality2 = (
             (modality2_inputs["input_ids"] == self.modality2_tokenizer.cls_token_id)

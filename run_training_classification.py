@@ -133,7 +133,7 @@ def main(config_path, wandb_key):
     model = BiCrossAttentionModel(
         modality1_model_name=mod1_model_name,
         modality2_model_name=mod2_model_name,
-        modality2_cache=dna_cache,
+        load_submodels=False,
     ).to(device)
 
     logging.info("Starting training...")
