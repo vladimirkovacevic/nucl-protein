@@ -78,24 +78,35 @@ class CustomDataCollator:
 def train_test_validation_split(dataset: datasets.DatasetDict) -> datasets.DatasetDict:
     """Perform train-test-validation split.
 
-    DatasetDict from huggingface is expected to have train and test split.
-    We split 50:50 split the test split to generate test and validation split
+    If DatasetDict from huggingface has train and test split
+    we split 50:50 the test to generate new test and validation split
     in final DatasetDict.
-
+    If DatasetDict from huggingface has train, test and validation split
+    we use the created splits.
     Args:
         dataset: DatasetDict from huggingface.
 
     Returns:
         DatasetDict with train, test and validation splits.
     """
-    dataset_test = dataset["test"]
-    dataset_test_val = dataset_test.train_test_split(test_size=0.5, seed=42)
+    dataset_splits = set(dataset.keys())
+    validation_split_names = set(["val", "valid", "validation"])
+    if dataset_splits.intersection(validation_split_names):
+        dataset_test = dataset["test"]
+        dataset_test_val = dataset_test.train_test_split(test_size=0.5, seed=42)
 
-    dataset_dict = {
-        "train": dataset["train"],
-        "test": dataset_test_val["train"],
-        "validation": dataset_test_val["test"],
-    }
+        dataset_dict = {
+            "train": dataset["train"],
+            "test": dataset_test_val["train"],
+            "validation": dataset_test_val["test"],
+        }
+    else:
+        val_key = list(dataset_splits.intersection(validation_split_names))[0]
+        dataset_dict = {
+            "train": dataset["train"],
+            "test": dataset_test_val["test"],
+            "validation": dataset_test_val[val_key],
+        }
     dataset = DatasetDict(dataset_dict)
     return dataset
 
