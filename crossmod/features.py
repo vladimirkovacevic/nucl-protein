@@ -91,7 +91,7 @@ def train_test_validation_split(dataset: datasets.DatasetDict) -> datasets.Datas
     """
     dataset_splits = set(dataset.keys())
     validation_split_names = set(["val", "valid", "validation"])
-    if dataset_splits.intersection(validation_split_names):
+    if not dataset_splits.intersection(validation_split_names):
         dataset_test = dataset["test"]
         dataset_test_val = dataset_test.train_test_split(test_size=0.5, seed=42)
 
