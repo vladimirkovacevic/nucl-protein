@@ -104,8 +104,8 @@ def train_test_validation_split(dataset: datasets.DatasetDict) -> datasets.Datas
         val_key = list(dataset_splits.intersection(validation_split_names))[0]
         dataset_dict = {
             "train": dataset["train"],
-            "test": dataset_test_val["test"],
-            "validation": dataset_test_val[val_key],
+            "test": dataset["test"],
+            "validation": dataset[val_key],
         }
     dataset = DatasetDict(dataset_dict)
     return dataset
