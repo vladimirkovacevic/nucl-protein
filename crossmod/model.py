@@ -191,12 +191,19 @@ class BiCrossAttentionModel(nn.Module):
         modality2_embedding = self.project_to_common(modality2_embedding)
 
         for layer in self.layers:
+            residual_modality1 = modality1_embedding
+            residual_modality2 = modality2_embedding
+
             modality1_embedding, modality2_embedding = layer(
                 modality1_embedding,
                 modality2_embedding,
                 special_tokens_mask_modality1,
                 special_tokens_mask_modality2,
             )
+
+            # Add skip connection across the entire layer
+            modality1_embedding = modality1_embedding + residual_modality1
+            modality2_embedding = modality2_embedding + residual_modality2
 
         # Perform mean pooling
         modality2_embedding = (

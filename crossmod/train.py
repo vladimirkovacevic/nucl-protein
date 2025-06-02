@@ -68,6 +68,7 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     step = 0
     ACCUMULATION_STEPS = 1  # effectively turned off
+    # register_all_hooks(model, track_forward=False)
 
     for epoch in range(cfg[EPOCHS]):
         logging.info(f"Epoch: {epoch + 1}/{cfg[EPOCHS]}")
@@ -271,3 +272,95 @@ def write_to_csv(y_true, y_pred, target_name, filename):
             writer.writerow([pred, true])
 
     logging.info(f"Results saved to {filename}")
+
+
+def register_all_hooks(
+    model,
+    log_thresh=1e-7,
+    dead_thresh=1e-6,
+    track_forward=True,
+    track_backward=True,
+    log_histogram=True,
+    log_to_wandb=True,
+    to_print=True,
+    step_fn=lambda: wandb.run.step,  # Customize step if needed
+):
+    hooks = []
+
+    def gradient_hook_fn(name):
+        def hook(module, grad_input, grad_output):
+            grad = grad_output[0] if isinstance(grad_output, tuple) else grad_output
+            if grad is not None:
+                grad_mean = grad.mean().item()
+                grad_std = grad.std().item()
+                grad_norm = grad.norm().item()
+                is_vanishing = abs(grad_mean) < log_thresh and grad_std < log_thresh
+                status = "🛑 VANISHING" if is_vanishing else "✅"
+                if to_print:
+                    print(
+                        f"{status} Grad @ {name:<30} | mean={grad_mean:.2e} | std={grad_std:.2e}"
+                    )
+
+                if log_to_wandb:
+                    wandb.log(
+                        {
+                            f"{name}/grad/mean": grad_mean,
+                            f"{name}/grad/std": grad_std,
+                            f"{name}/grad/norm": grad_norm,
+                        },
+                        step=step_fn(),
+                    )
+
+                    if log_histogram:
+                        wandb.log(
+                            {
+                                f"{name}/grad/hist": wandb.Histogram(
+                                    grad.detach().cpu().numpy()
+                                )
+                            },
+                            step=step_fn(),
+                        )
+
+        return hook
+
+    def forward_hook_fn(name):
+        def hook(module, input, output):
+            x = output if isinstance(output, torch.Tensor) else output[0]
+            mean = x.mean().item()
+            std = x.std().item()
+            min_ = x.min().item()
+            max_ = x.max().item()
+
+            dead_ratio = (x.abs() < dead_thresh).float().mean().item()
+            is_mostly_dead = dead_ratio > 0.99
+            status = "💀 MOSTLY DEAD" if is_mostly_dead else "✅"
+
+            if to_print:
+                print(
+                    f"{status} Forward @ {name:<30} | mean={mean:.2e} | std={std:.2e} | min={min_:.2e} | max={max_:.2e} | near_zero={dead_ratio:.2%}"
+                )
+
+            if log_to_wandb:
+                wandb.log(
+                    {
+                        f"{name}/forward_mean": mean,
+                        f"{name}/forward_std": std,
+                        f"{name}/forward_dead_ratio": dead_ratio,
+                        f"{name}/forward_activations": wandb.Histogram(
+                            x.detach().cpu().numpy()
+                        ),
+                    }
+                )
+
+        return hook
+
+    for name, module in model.named_modules():
+        if any(p.requires_grad for p in module.parameters(recurse=False)):
+            if track_backward:
+                print(f"Tracking backward pass for: {name}")
+                hooks.append(module.register_full_backward_hook(gradient_hook_fn(name)))
+            if track_forward:
+                print(f"Tracking forward pass for: {name}")
+                hooks.append(module.register_forward_hook(forward_hook_fn(name)))
+
+    return hooks
