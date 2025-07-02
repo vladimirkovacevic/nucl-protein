@@ -15,7 +15,8 @@ Author: OpenAI o3, 2025-06-09
 import argparse  # For command-line interface
 from dataclasses import dataclass  # For creating simple data structures
 from typing import List, Dict, Any, Optional  # For type hints
-import datetime
+import datetime import datetime
+import os, tempfile, pathlib
 
 # --- PyTorch imports ---
 import torch
@@ -33,6 +34,14 @@ from transformers import (
     PretrainedConfig,
     AutoModelForMaskedLM,
 )
+td = tempfile.gettempdir()
+fallback = os.path.expanduser("~/tmp")
+
+if not os.access(td, os.W_OK):
+    os.makedirs(fallback, exist_ok=True)
+    os.environ["TMPDIR"] = fallback
+    tempfile.tempdir = fallback
+
 
 # --- wandb import ---
 import wandb
@@ -449,10 +458,11 @@ def main():
 
     # Initialize wandb with your token and project name
     wandb.login(key="8650f0776cd5b7c69f0049de35e2da564004f132")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     wandb.init(
-        project="ProtFlash",
+        project="BiModalProtFlashNT",
         config=vars(args),
-        name=f"run_with_{args.hf_path.replace('/', '_')}",  # Optional run name
+        name=f"run_with_{args.hf_path.replace('/', '_')}_{timestamp}",  # Optional run name
         notes=f"Using dataset: {args.hf_path}"              # Adds dataset info to Wandb run
     )
 
@@ -472,6 +482,8 @@ def main():
     print("🧪 Label distribution in training set:", label_counts)
 
     # Define training configuration with wandb reporting enabled
+    steps_per_epoch = len(ds_train) // args.per_device_train_batch_size
+    logging_steps = max(1, steps_per_epoch // 1000)
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=args.num_train_epochs,
@@ -482,15 +494,15 @@ def main():
         save_strategy="epoch",
         logging_dir=f"{args.output_dir}/logs",
         logging_strategy="steps",
-        logging_steps=10,  # log every 10 steps
+        logging_steps=logging_steps,  # log every 10 steps
         report_to="wandb",  # Enable wandb logging
         disable_tqdm=False,
         remove_unused_columns=False,
         bf16=not args.no_cuda and torch.cuda.is_available(),  # Mixed precision if CUDA
         max_grad_norm=1.0,  # 💡 This enables gradient clipping! Prevents exploding
-        run_name = f"bimodal-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        run_name = f"bimodal-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     )
-
+    
     # Launch training using HuggingFace Trainer
     trainer = Trainer(
         model=model,
@@ -525,5 +537,7 @@ def main():
 # --- Entry point for the script ---
 if __name__ == "__main__":
     main()
+
+
 
 
