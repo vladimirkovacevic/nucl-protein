@@ -227,28 +227,63 @@ class BiModalModel(PreTrainedModel):
 
     def forward(
         self,
-        prot_ids: torch.Tensor,
-        prot_lengths: torch.Tensor,
-        nt_input_ids: torch.Tensor,
-        nt_attention_mask: torch.Tensor,
-        labels: Optional[torch.Tensor] = None,
+        # prot_ids: torch.Tensor,
+        # prot_lengths: torch.Tensor,
+        # nt_input_ids: torch.Tensor,
+        # nt_attention_mask: torch.Tensor,
+        # labels: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,          
+        protein_input_ids: torch.Tensor,       
+        protein_lengths: torch.Tensor,         
+        labels: Optional[torch.Tensor] = None
     ):
+        # Get the device the model is on
+        device = next(self.parameters()).device
+    
+        # Move all inputs to the model's device
+        protein_input_ids = protein_input_ids.to(device)
+        protein_lengths = protein_lengths.to(device)
+        input_ids = input_ids.to(device)
+        attention_mask = attention_mask.to(device)
+        if labels is not None:
+            labels = labels.to(device)
+        
         # --- Encode protein sequences using ProtFlash ---
-        prot_out = self.prot_model(prot_ids, prot_lengths)
+        prot_out = self.prot_model(protein_input_ids, protein_lengths)
+        if torch.isnan(prot_out).any():
+            print(f"⚠️ NaNs in raw ProtFlash output")
+            print(f"protein_input_ids shape: {protein_input_ids.shape}")
+            print(f"protein_lengths: {protein_lengths}")
+            print('Prot ids: \n', protein_input_ids.cpu())
+            print('Prot out: \n', prot_out.cpu())
+            with open("nan_prot_tokens.txt", "w") as f:
+                for seq in protein_input_ids.cpu().tolist():
+                    # seq is list of ints (token IDs)
+                    f.write(" ".join(map(str, seq)) + "\n")
+            import sys
+            sys.exit()
+
+            nan_mask = torch.isnan(prot_out)
+            print(f"NaNs at indices: {nan_mask.nonzero(as_tuple=True)}")
+            batch_size = prot_out.size(0)
+            
+            prot_out = torch.nan_to_num(prot_out, nan=0.0, posinf=0.0, neginf=0.0) # NaN guard
+
         B = prot_out.size(0)
         seq_repr = []
         for i in range(B):
             # Average over all valid residues (ignore padding at position 0)
-            seq_repr.append(prot_out[i, 1 : prot_lengths[i] + 1].mean(dim=0))
+            seq_repr.append(prot_out[i, 1 : protein_lengths[i] + 1].mean(dim=0))
         prot_repr = torch.stack(seq_repr, dim=0)  # Shape: (batch_size, 768)
     
         # --- Encode nucleotide sequences ---
         nt_outputs = self.nt_model(
-            input_ids=nt_input_ids,
-            attention_mask=nt_attention_mask,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
             output_hidden_states=True,
         )
-        nt_repr = self._mean_pool(nt_outputs.hidden_states[-1], nt_attention_mask)
+        nt_repr = self._mean_pool(nt_outputs.hidden_states[-1], attention_mask)
     
         # --- CHECK: Warn if zero or NaN embeddings ---
         prot_norms = prot_repr.norm(dim=1)
@@ -309,6 +344,9 @@ class BiModalModel(PreTrainedModel):
     
         return (loss, logits)
 
+    @property
+    def input_names(self):
+        return ["input_ids", "attention_mask", "protein_input_ids", "protein_lengths"]
 
 # --- Dataset class for dual-input modality ---
 class BiModalDataset(Dataset):
@@ -368,11 +406,18 @@ class BiModalCollator:
         )
 
         # Return full input batch dictionary
+        # return {
+        #     "prot_ids": prot_ids,
+        #     "prot_lengths": lengths,
+        #     "nt_input_ids": nt_enc.input_ids,
+        #     "nt_attention_mask": nt_enc.attention_mask,
+        #     "labels": labels,
+        # }
         return {
-            "prot_ids": prot_ids,
-            "prot_lengths": lengths,
-            "nt_input_ids": nt_enc.input_ids,
-            "nt_attention_mask": nt_enc.attention_mask,
+            "input_ids": nt_enc.input_ids,                  # used for nucleotides
+            "attention_mask": nt_enc.attention_mask,
+            "protein_input_ids": prot_ids,                  # used for proteins
+            "protein_lengths": lengths,
             "labels": labels,
         }
 
@@ -441,7 +486,7 @@ def main():
         report_to="wandb",  # Enable wandb logging
         disable_tqdm=False,
         remove_unused_columns=False,
-        fp16=not args.no_cuda and torch.cuda.is_available(),  # Mixed precision if CUDA
+        bf16=not args.no_cuda and torch.cuda.is_available(),  # Mixed precision if CUDA
         max_grad_norm=1.0,  # 💡 This enables gradient clipping! Prevents exploding
         run_name = f"bimodal-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
     )
