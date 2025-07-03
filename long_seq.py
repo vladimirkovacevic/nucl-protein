@@ -15,7 +15,7 @@ Author: OpenAI o3, 2025-06-09
 import argparse  # For command-line interface
 from dataclasses import dataclass  # For creating simple data structures
 from typing import List, Dict, Any, Optional  # For type hints
-import datetime import datetime
+from datetime import datetime
 import os, tempfile, pathlib
 
 # --- PyTorch imports ---
@@ -171,7 +171,7 @@ class BiModalModel(PreTrainedModel):
         self,
         nt_model_name: str = "InstaDeepAI/nucleotide-transformer-v2-50m-3mer-multi-species",
         num_labels: int = 2,
-        dropout: float = 0.1,
+        # dropout: float = 0.1,
     ):
         cfg = BiModalConfig(num_labels=num_labels)
         super().__init__(cfg)
@@ -184,17 +184,28 @@ class BiModalModel(PreTrainedModel):
         # Load pretrained nucleotide tokenizer and transformer model
         self.nt_tokenizer = AutoTokenizer.from_pretrained(nt_model_name, trust_remote_code=True)
         self.nt_model = AutoModelForMaskedLM.from_pretrained(nt_model_name, trust_remote_code=True)
+        for param in self.nt_model.parameters():
+            param.requires_grad = False  # Freeze nucleotide transformer weights
 
         # Set up classifier head (MLP) on top of fused protein + nucleotide embeddings
         prot_dim = 768
         nt_dim = self.nt_model.config.hidden_size
         hidden_dim = prot_dim + nt_dim
 
+        # self.classifier = nn.Sequential(
+        #     nn.Linear(hidden_dim, hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(hidden_dim, num_labels),
+        # )
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim, 256),     # compress from 1280 → 256
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, num_labels),
+            nn.Dropout(0.3),
+            nn.Linear(256, 64),       # further reduce to 64
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(64, num_labels)          # binary classification (or num_classes)
         )
         self._init_classifier_weights()
 
@@ -436,7 +447,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--hf_path", type=str, default="vladak/ncRPI", help="Path to HuggingFace dataset") # vladak/CentralDogma 
     p.add_argument("--output_dir", type=str, default="./outputs")
-    p.add_argument("--num_train_epochs", type=int, default=4)
+    p.add_argument("--num_train_epochs", type=int, default=3)
     p.add_argument("--per_device_train_batch_size", type=int, default=4)
     p.add_argument("--per_device_eval_batch_size", type=int, default=4)
     p.add_argument("--learning_rate", type=float, default=1e-5)
@@ -469,9 +480,11 @@ def main():
     # Initialize model and tokenizer
     model = BiModalModel()
     collator = BiModalCollator(model.nt_tokenizer)
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Number of trainable parameters: {trainable_params:,}")
+    wandb.config.update({"trainable_parameters": trainable_params})
 
     # Load train and validation splits
-
     ds_train = BiModalDataset("train", hf_path=args.hf_path)
     ds_val = BiModalDataset("val", hf_path=args.hf_path)
     ds_test = BiModalDataset("test", hf_path=args.hf_path)
@@ -483,7 +496,6 @@ def main():
 
     # Define training configuration with wandb reporting enabled
     steps_per_epoch = len(ds_train) // args.per_device_train_batch_size
-    logging_steps = max(1, steps_per_epoch // 1000)
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=args.num_train_epochs,
@@ -491,10 +503,10 @@ def main():
         per_device_eval_batch_size=args.per_device_eval_batch_size,
         evaluation_strategy="epoch",
         learning_rate=args.learning_rate,
+        warmup_steps=500,     # gradual warmup
         save_strategy="epoch",
         logging_dir=f"{args.output_dir}/logs",
         logging_strategy="steps",
-        logging_steps=logging_steps,  # log every 10 steps
         report_to="wandb",  # Enable wandb logging
         disable_tqdm=False,
         remove_unused_columns=False,
