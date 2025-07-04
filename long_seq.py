@@ -8,7 +8,6 @@ This script defines a bi-modal transformer architecture that combines:
 It uses the 🤗 Transformers Trainer API for training, and a custom dataset
 collator to handle the two-input modality.
 
-Author: OpenAI o3, 2025-06-09
 """
 
 # --- Standard libraries ---
@@ -107,8 +106,7 @@ class PrintMetricsCallback(TrainerCallback):
             "train_accuracy": train_metrics.get("train_accuracy", float("nan")),
             "train_auc": train_metrics.get("train_auc", float("nan")),
             "val_accuracy": val_metrics.get("val_accuracy", float("nan")),
-            "val_auc": val_metrics.get("val_auc", float("nan")),
-            "epoch": state.epoch
+            "val_auc": val_metrics.get("val_auc", float("nan"))
         }, step=state.global_step)
 
 
@@ -192,12 +190,6 @@ class BiModalModel(PreTrainedModel):
         nt_dim = self.nt_model.config.hidden_size
         hidden_dim = prot_dim + nt_dim
 
-        # self.classifier = nn.Sequential(
-        #     nn.Linear(hidden_dim, hidden_dim),
-        #     nn.ReLU(),
-        #     nn.Dropout(dropout),
-        #     nn.Linear(hidden_dim, num_labels),
-        # )
         self.classifier = nn.Sequential(
             nn.Linear(hidden_dim, 256),     # compress from 1280 → 256
             nn.ReLU(),
@@ -425,14 +417,6 @@ class BiModalCollator:
             add_special_tokens=True,
         )
 
-        # Return full input batch dictionary
-        # return {
-        #     "prot_ids": prot_ids,
-        #     "prot_lengths": lengths,
-        #     "nt_input_ids": nt_enc.input_ids,
-        #     "nt_attention_mask": nt_enc.attention_mask,
-        #     "labels": labels,
-        # }
         return {
             "input_ids": nt_enc.input_ids,                  # used for nucleotides
             "attention_mask": nt_enc.attention_mask,
@@ -450,17 +434,17 @@ def parse_args():
     p.add_argument("--num_train_epochs", type=int, default=3)
     p.add_argument("--per_device_train_batch_size", type=int, default=4)
     p.add_argument("--per_device_eval_batch_size", type=int, default=4)
-    p.add_argument("--learning_rate", type=float, default=1e-5)
+    p.add_argument("--learning_rate", type=float, default=3e-5)
     p.add_argument("--no_cuda", action="store_true")
     return p.parse_args()
 
 
-# --- Custom Trainer callback to log loss per step to wandb ---
-class WandbLogCallback(TrainerCallback):
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        # Log all trainer logs (including loss) to wandb
-        if logs is not None:
-            wandb.log(logs, step=state.global_step)
+# # --- Custom Trainer callback to log loss per step to wandb ---
+# class WandbLogCallback(TrainerCallback):
+#     def on_log(self, args, state, control, logs=None, **kwargs):
+#         # Log all trainer logs (including loss) to wandb
+#         if logs is not None:
+#             wandb.log(logs, step=state.global_step)
 
 
 # --- Main training loop using HuggingFace Trainer ---
@@ -504,9 +488,10 @@ def main():
         evaluation_strategy="epoch",
         learning_rate=args.learning_rate,
         warmup_steps=500,     # gradual warmup
-        save_strategy="epoch",
+        save_strategy="no",
         logging_dir=f"{args.output_dir}/logs",
         logging_strategy="steps",
+        logging_steps=50,
         report_to="wandb",  # Enable wandb logging
         disable_tqdm=False,
         remove_unused_columns=False,
@@ -526,7 +511,7 @@ def main():
     )
     # Add your custom callbacks for printing and wandb logging
     trainer.add_callback(PrintMetricsCallback(trainer))
-    trainer.add_callback(WandbLogCallback())
+    # trainer.add_callback(WandbLogCallback())
     trainer.add_callback(GradientCheckCallback())
 
     trainer.train()
@@ -549,7 +534,4 @@ def main():
 # --- Entry point for the script ---
 if __name__ == "__main__":
     main()
-
-
-
 
