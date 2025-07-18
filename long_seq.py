@@ -17,10 +17,14 @@ from typing import List, Dict, Any, Optional  # For type hints
 from datetime import datetime
 import os, tempfile, pathlib
 
+from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, mean_squared_error, r2_score
+import numpy as np
+
 # --- PyTorch imports ---
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset  # For building custom dataset loaders
+from transformers import EvalPrediction
 
 # --- HuggingFace libraries ---
 from datasets import load_dataset  # To load datasets from the HuggingFace hub
@@ -54,35 +58,31 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # --- Metrics for evaluation ---
-from transformers import EvalPrediction
-from sklearn.metrics import roc_auc_score, accuracy_score
-import numpy as np
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    num_labels = logits.shape[1] if logits.ndim > 1 else 1
+    is_regression = num_labels == 1
 
-def compute_metrics(eval_pred: EvalPrediction) -> Dict[str, float]:
-    logits, labels = eval_pred.predictions, eval_pred.label_ids
-
-    if logits.ndim == 3:
-        raise ValueError(f"Expected logits shape [batch_size, num_labels], got {logits.shape}")
-
-    probs = torch.softmax(torch.tensor(logits), dim=-1).numpy()
-
-    if np.isnan(probs).any():
-        print("⚠️ Warning: NaNs detected in probabilities. Skipping AUC computation.")
-        auc = float("nan")
+    if is_regression:
+        preds = logits.squeeze()
+        labels = labels.squeeze()
+        mse = mean_squared_error(labels, preds)
+        rmse = np.sqrt(mse)
+        r2 = r2_score(labels, preds)
+        return {
+            "mse": mse,
+            "rmse": rmse,
+            "r2": r2
+        }
     else:
-        try:
-            if probs.shape[1] == 2:
-                auc = roc_auc_score(labels, probs[:, 1])
-            else:
-                auc = roc_auc_score(labels, probs, multi_class="ovr")
-        except ValueError as e:
-            print(f"⚠️ AUC computation failed: {e}")
-            auc = float("nan")
+        preds = np.argmax(logits, axis=1)
+        acc = accuracy_score(labels, preds)
+        f1 = f1_score(labels, preds, average="weighted")
+        return {
+            "accuracy": acc,
+            "f1": f1
+        }
 
-    preds = np.argmax(probs, axis=1)
-    acc = accuracy_score(labels, preds)
-
-    return {"accuracy": acc, "auc": auc}
 
 
 from transformers import TrainerCallback, TrainerControl, TrainerState, TrainingArguments
@@ -96,19 +96,19 @@ class PrintMetricsCallback(TrainerCallback):
     def on_epoch_end(self, args, state, control, **kwargs):
         train_metrics = self.trainer.evaluate(eval_dataset=self.trainer.train_dataset, metric_key_prefix="train")
         val_metrics = self.trainer.evaluate(eval_dataset=self.trainer.eval_dataset, metric_key_prefix="val")
-
-        print(f"\n🔁 Epoch {int(state.epoch)} Summary:")
-        print(f"  ✅ Train  - Accuracy: {train_metrics['train_accuracy']:.4f} | AUC: {train_metrics['train_auc']:.4f}")
-        print(f"  ✅ Val    - Accuracy: {val_metrics['val_accuracy']:.4f} | AUC: {val_metrics['val_auc']:.4f}")
-
-        # 🚀 Log to wandb
-        wandb.log({
-            "train_accuracy": train_metrics.get("train_accuracy", float("nan")),
-            "train_auc": train_metrics.get("train_auc", float("nan")),
-            "val_accuracy": val_metrics.get("val_accuracy", float("nan")),
-            "val_auc": val_metrics.get("val_auc", float("nan"))
-        }, step=state.global_step)
-
+    
+        if "train_accuracy" in train_metrics:
+            # <---------- Print classification metrics
+            print(f"\n🔁 Epoch {int(state.epoch)} Summary:")
+            print(f"  ✅ Train  - Accuracy: {train_metrics['train_accuracy']:.4f} | AUC: {train_metrics['train_auc']:.4f}")
+            print(f"  ✅ Val    - Accuracy: {val_metrics['val_accuracy']:.4f} | AUC: {val_metrics['val_auc']:.4f}")
+        else:
+            # <---------- Print regression metrics
+            print(f"\n🔁 Epoch {int(state.epoch)} Summary:")
+            print(f"  ✅ Train  - MSE: {train_metrics['train_mse']:.4f} | MAE: {train_metrics['train_mae']:.4f}")
+            print(f"  ✅ Val    - MSE: {val_metrics['val_mse']:.4f} | MAE: {val_metrics['val_mae']:.4f}")
+    
+        wandb.log(train_metrics | val_metrics, step=state.global_step)
 
 
 class GradientCheckCallback(TrainerCallback):
@@ -348,12 +348,11 @@ class BiModalModel(PreTrainedModel):
                 loss = self.loss_fn(logits, labels)
         
             else:  # Regression
-                if logits.dim() != 1 or labels.dim() != 1:
-                    raise ValueError(
-                        f"❌ For regression: logits and labels should be shape (B,), got {logits.shape}, {labels.shape}"
-                    )
-                loss = self.loss_fn(logits.squeeze(-1), labels.float())
-    
+                # Make sure logits and labels have the same shape for loss
+                logits = logits.view(-1)  # shape (B,)
+                labels = labels.float().view(-1)  # shape (B,)
+                loss = self.loss_fn(logits, labels)
+
         return (loss, logits)
 
     @property
@@ -368,16 +367,8 @@ class BiModalDataset(Dataset):
     """
 
     def __init__(self, split: str = "train", hf_path: str = "vladak/ncRPI"):
-        self.ds = load_dataset(hf_path, split=split)
-
-        # Normalize and align gene/protein based on type tags
-        self.samples: List[Dict[str, Any]] = []
-        # for row in self.ds:
-        #     if row["seq_type_a"] == "gene":
-        #         gene_seq, prot_seq = row["seq_a"], row["seq_b"]
-        #     else:
-        #         gene_seq, prot_seq = row["seq_b"], row["seq_a"]
-
+        self.ds = load_dataset(hf_path, split=split). # , download_mode="force_redownload"
+        self.samples = []  # <-- initialize this
 
         def is_nucleotide(seq):
             return all(c in "ACGT" for c in seq.upper())
@@ -476,12 +467,7 @@ def main():
         notes=f"Using dataset: {args.hf_path}"              # Adds dataset info to Wandb run
     )
 
-    # Initialize model and tokenizer
-    model = BiModalModel()
-    collator = BiModalCollator(model.nt_tokenizer)
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Number of trainable parameters: {trainable_params:,}")
-    wandb.config.update({"trainable_parameters": trainable_params})
+
 
     # Load train and validation splits
     ds_train = BiModalDataset("train", hf_path=args.hf_path)
@@ -492,6 +478,20 @@ def main():
     labels = [s["label"] for s in ds_train.samples]
     label_counts = {l: labels.count(l) for l in set(labels)}
     print("🧪 Label distribution in training set:", label_counts)
+
+    # <---------- Check if task is regression (more than 2 unique labels)
+    unique_labels = set(labels)
+    is_regression = len(unique_labels) > 2
+    num_labels = 1 if is_regression else len(unique_labels)
+    
+    # Initialize model and tokenizer
+    # <---------- Pass task-specific label configuration
+    model = BiModalModel(num_labels=num_labels)
+
+    collator = BiModalCollator(model.nt_tokenizer)
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Number of trainable parameters: {trainable_params:,}")
+    wandb.config.update({"trainable_parameters": trainable_params})
 
     # Define training configuration with wandb reporting enabled
     steps_per_epoch = len(ds_train) // args.per_device_train_batch_size
@@ -536,10 +536,10 @@ def main():
     print("Test metrics:", test_metrics)
     
     # ✅ Log test metrics to wandb manually
-    wandb.log({
-        "test_accuracy": test_metrics.get("eval_accuracy"),
-        "test_auc": test_metrics.get("eval_auc"),
-    }, step=trainer.state.global_step)
+    # <---------- Log all test metrics (handles regression or classification)
+    test_metrics_prefixed = {f"test_{k[5:]}": v for k, v in test_metrics.items() if k.startswith("eval_")}
+    wandb.log(test_metrics_prefixed, step=trainer.state.global_step)
+
 
 
     # Finish wandb run
