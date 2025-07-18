@@ -17,7 +17,14 @@ from typing import List, Dict, Any, Optional  # For type hints
 from datetime import datetime
 import os, tempfile, pathlib
 
-from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, mean_squared_error, r2_score
+from sklearn.metrics import (
+    mean_squared_error,
+    mean_absolute_error,
+    r2_score,
+    accuracy_score,
+    f1_score,
+    roc_auc_score
+)
 import numpy as np
 
 # --- PyTorch imports ---
@@ -57,33 +64,58 @@ if torch.backends.mps.is_available():
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# --- Metrics for evaluation ---
+
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
+
+    # Convert logits to numpy
+    if isinstance(logits, torch.Tensor):
+        logits = logits.detach().cpu().numpy()
+    if isinstance(labels, torch.Tensor):
+        labels = labels.detach().cpu().numpy()
+
     num_labels = logits.shape[1] if logits.ndim > 1 else 1
     is_regression = num_labels == 1
 
     if is_regression:
         preds = logits.squeeze()
         labels = labels.squeeze()
+
         mse = mean_squared_error(labels, preds)
         rmse = np.sqrt(mse)
+        mae = mean_absolute_error(labels, preds)
         r2 = r2_score(labels, preds)
+
         return {
             "mse": mse,
             "rmse": rmse,
+            "mae": mae,
             "r2": r2
         }
-    else:
+
+    else:  # Classification
         preds = np.argmax(logits, axis=1)
         acc = accuracy_score(labels, preds)
         f1 = f1_score(labels, preds, average="weighted")
+
+        # AUC needs probability scores (for binary or multi-class)
+        try:
+            if num_labels == 2:  # Binary classification
+                probs = torch.softmax(torch.tensor(logits), dim=1)[:, 1].numpy()
+                auc = roc_auc_score(labels, probs)
+            else:  # Multi-class
+                probs = torch.softmax(torch.tensor(logits), dim=1).numpy()
+                auc = roc_auc_score(labels, probs, multi_class="ovr")
+        except Exception as e:
+            print(f"⚠️ Could not compute AUC: {e}")
+            auc = float("nan")
+
         return {
             "accuracy": acc,
-            "f1": f1
+            "f1": f1,
+            "auc": auc
         }
-
-
+        
 
 from transformers import TrainerCallback, TrainerControl, TrainerState, TrainingArguments
 from typing import Dict, Any
@@ -367,7 +399,7 @@ class BiModalDataset(Dataset):
     """
 
     def __init__(self, split: str = "train", hf_path: str = "vladak/ncRPI"):
-        self.ds = load_dataset(hf_path, split=split). # , download_mode="force_redownload"
+        self.ds = load_dataset(hf_path, split=split) # , download_mode="force_redownload"
         self.samples = []  # <-- initialize this
 
         def is_nucleotide(seq):
