@@ -372,17 +372,32 @@ class BiModalDataset(Dataset):
 
         # Normalize and align gene/protein based on type tags
         self.samples: List[Dict[str, Any]] = []
-        for row in self.ds:
-            if row["seq_type_a"] == "gene":
-                gene_seq, prot_seq = row["seq_a"], row["seq_b"]
-            else:
-                gene_seq, prot_seq = row["seq_b"], row["seq_a"]
+        # for row in self.ds:
+        #     if row["seq_type_a"] == "gene":
+        #         gene_seq, prot_seq = row["seq_a"], row["seq_b"]
+        #     else:
+        #         gene_seq, prot_seq = row["seq_b"], row["seq_a"]
 
+
+        def is_nucleotide(seq):
+            return all(c in "ACGT" for c in seq.upper())
+
+        for row in self.ds:
+            seq_a, seq_b = row["seq_a"], row["seq_b"]
+        
+            if is_nucleotide(seq_a):
+                gene_seq, prot_seq = seq_a, seq_b
+            elif is_nucleotide(seq_b):
+                gene_seq, prot_seq = seq_b, seq_a
+            else:
+                raise ValueError(f"❌ Neither sequence looks like a nucleotide sequence:\nseq_a: {seq_a}\nseq_b: {seq_b}")
+        
             self.samples.append({
                 "gene_seq": gene_seq,
                 "prot_seq": prot_seq,
                 "label": row["label"],
             })
+
 
     def __len__(self):
         return len(self.samples)
@@ -534,4 +549,3 @@ def main():
 # --- Entry point for the script ---
 if __name__ == "__main__":
     main()
-
