@@ -1,5 +1,8 @@
 import logging
+import os
+import uuid
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -143,6 +146,9 @@ class BiCrossAttentionModel(nn.Module):
         modality2_attention_mask: torch.Tensor,
         modality1_cache_keys: torch.Tensor | None = None,
         modality2_cache_keys: torch.Tensor | None = None,
+        targets: torch.Tensor | None = None,
+        file_path: str = "",
+        save_emb: bool = False,
     ):
         # Modality 1
         modality1_inputs = {
@@ -215,8 +221,22 @@ class BiCrossAttentionModel(nn.Module):
 
         # Combine embeddings
         combined = torch.cat([modality1_embedding, modality2_embedding], dim=1)
+        # Save combined embeddings
+        if save_emb:
+            self._save_embeddings_to_dir(combined, targets, file_path)
+
         logits = self.ffn_head(combined)
         return logits
+
+    def _save_embeddings_to_dir(self, embeddings, target, file):
+        os.makedirs(file, exist_ok=True)
+
+        for emb, label in zip(embeddings, target):
+            emb = emb.detach().cpu().numpy()
+            label = label.detach().cpu().numpy()
+            random_name = f"{uuid.uuid4().hex}_{label}.npy"
+            path = os.path.join(file, random_name)
+            np.save(path, emb)
 
 
 def save_model_trainable_part(model, filename="trained_model.pth"):

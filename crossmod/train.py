@@ -1,5 +1,6 @@
 import csv
 import logging
+import os
 
 import torch
 import torch.nn as nn
@@ -39,6 +40,8 @@ from crossmod.utils import (
     regression_plots_plotly,
 )
 
+from crossmod.model import save_model_trainable_part
+
 
 def train_model(model, train_dataloader, val_dataloader, cfg, device):
     if cfg[TASK_TYPE] not in [task.value for task in TaskType]:
@@ -69,12 +72,17 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
     step = 0
     ACCUMULATION_STEPS = 1  # effectively turned off
     # register_all_hooks(model, track_forward=False)
+    print(
+        "Num trainable params: ",
+        sum(p.numel() for p in model.parameters() if p.requires_grad),
+    )
 
     for epoch in range(cfg[EPOCHS]):
         logging.info(f"Epoch: {epoch + 1}/{cfg[EPOCHS]}")
         model.train()
         train_loss = 0.0
         train_progress = tqdm(train_dataloader, desc="Training...")
+        should_save_emb = epoch == (cfg[EPOCHS] - 1)
 
         for batch in train_progress:
             mod1_input_ids = batch[cfg[MOD1_INPUT_IDS_NAME]].to(device)
@@ -95,6 +103,9 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
                 modality2_attention_mask=mod2_attention_mask,
                 modality1_cache_keys=mod1_cache_keys,
                 modality2_cache_keys=mod2_cache_keys,
+                targets=targets,
+                file_path=os.path.join(cfg["emb_path"], "training"),
+                save_emb=should_save_emb,
             )
             loss = criterion(preds, targets.float())
             loss.backward()
@@ -108,6 +119,8 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
             if step % 300 == 0:
                 wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]})
         train_loss /= len(train_dataloader)
+
+        # save_model_trainable_part(model, f"trained_classification_1M_epoch_{epoch}.pth")
 
         model.eval()
         val_loss = 0.0
@@ -132,6 +145,9 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
                     modality2_attention_mask=mod2_attention_mask,
                     modality1_cache_keys=mod1_cache_keys,
                     modality2_cache_keys=mod2_cache_keys,
+                    targets=targets,
+                    file_path=os.path.join(cfg["emb_path"], "validation"),
+                    save_emb=should_save_emb,
                 )
                 loss = criterion(preds, targets.float())
                 val_loss += loss.item()
@@ -170,6 +186,9 @@ def evaluate_model_classification(model, test_dataloader, cfg, device):
                 modality2_attention_mask=mod2_attention_mask,
                 modality1_cache_keys=mod1_cache_keys,
                 modality2_cache_keys=mod2_cache_keys,
+                targets=targets,
+                file_path=os.path.join(cfg["emb_path"], "test"),
+                save_emb=True,
             )
             # transform preds to 0 - 1
             probs = torch.sigmoid(preds)

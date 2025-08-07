@@ -122,18 +122,18 @@ def main(config_path, wandb_key):
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dna_cache = EmbeddingCache(
-        data=tokenized_dataset["train"],
-        key=cfg[CACHE_MOD2_KEY],
-        input_ids_name=cfg[MOD2_INPUT_IDS_NAME],
-        attention_mask_name=cfg[MOD2_ATTN_MASK_NAME],
-        emb_model_name=cfg[MOD2_MODEL_NAME],
-        device=device,
-    )
+    # dna_cache = EmbeddingCache(
+    #     data=tokenized_dataset["train"],
+    #     key=cfg[CACHE_MOD2_KEY],
+    #     input_ids_name=cfg[MOD2_INPUT_IDS_NAME],
+    #     attention_mask_name=cfg[MOD2_ATTN_MASK_NAME],
+    #     emb_model_name=cfg[MOD2_MODEL_NAME],
+    #     device=device,
+    # )
     model = BiCrossAttentionModel(
         modality1_model_name=mod1_model_name,
         modality2_model_name=mod2_model_name,
-        modality2_cache=dna_cache,
+        # modality2_cache=dna_cache,
     ).to(device)
 
     logging.info("Starting training...")
@@ -143,7 +143,7 @@ def main(config_path, wandb_key):
 
     logging.info("Finished training...")
 
-    save_model_trainable_part(model, "trained_classification.pth")
+    save_model_trainable_part(model, "trained_classification_STRING_10K.pth")
 
 
 if __name__ == "__main__":
