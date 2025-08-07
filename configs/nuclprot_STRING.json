@@ -1,0 +1,23 @@
+{
+    "dataset_name": "vladak/human_ppi_interactions_10K",
+    "cache_mod1_key": "",
+    "cache_mod2_key": "",
+    "mod1_sequence_name": "seq_a",
+    "mod2_sequence_name": "seq_b",
+    "target": "label",
+    "mod1_model_name": "facebook/esm2_t33_650M_UR50D",
+    "mod2_model_name": "facebook/esm2_t33_650M_UR50D",
+    "mod1_input_ids_name": "dna1_input_ids",
+    "mod2_input_ids_name": "dna2_input_ids",
+    "mod1_attention_mask_name": "dna1_attention_mask",
+    "mod2_attention_mask_name": "dna2_attention_mask",
+    "warmup_steps": 500,
+    "epochs": 10,
+    "batch_size": 16,
+    "lr": 2e-4,
+    "wandb_project": "nuclprot",
+    "wandb_name": "script STRING",
+    "task_type": "classification",
+    "log_dir": "logs_class",
+    "emb_path": "/s3/users/nikola/emb_string_10k"
+  }
