@@ -4,6 +4,8 @@ import os
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -43,7 +45,37 @@ from crossmod.utils import (
 from crossmod.model import save_model_trainable_part
 
 
+def contrastive_loss(embedding1, embedding2, labels, margin=1):
+    """
+    Computes contrastive loss between two batches of embeddings.
+
+    Args:
+        embedding1: [B, D] Tensor (e.g., modality1)
+        embedding2: [B, D] Tensor (e.g., modality2)
+        labels: [B] Tensor of 0 (negative) or 1 (positive)
+        margin: distance margin for negative pairs
+
+    Returns:
+        Scalar loss
+    """
+    # Normalize to unit vectors
+    embedding1 = F.normalize(embedding1, p=2, dim=1)
+    embedding2 = F.normalize(embedding2, p=2, dim=1)
+
+    # Cosine similarity becomes L2 distance due to normalization
+    distances = (embedding1 - embedding2).pow(2).sum(dim=1)
+
+    # Contrastive loss
+    labels = labels.view(-1)
+    positive_loss = labels * distances
+    negative_loss = (1 - labels) * F.relu(margin - torch.sqrt(distances + 1e-6)).pow(2)
+
+    loss = 0.5 * (positive_loss + negative_loss).mean()
+    return loss
+
+
 def train_model(model, train_dataloader, val_dataloader, cfg, device):
+    CONTRASTIVE_WEIGHT = 0.5
     if cfg[TASK_TYPE] not in [task.value for task in TaskType]:
         raise ValueError(
             f"Invalid task type '{cfg[TASK_TYPE]}'. Must be 'classification' or 'regression'."
@@ -71,6 +103,7 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     step = 0
     ACCUMULATION_STEPS = 1  # effectively turned off
+
     # register_all_hooks(model, track_forward=False)
     print(
         "Num trainable params: ",
@@ -96,7 +129,7 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
                 batch[cfg[CACHE_MOD2_KEY]] if cfg[CACHE_MOD2_KEY] else None
             )
             targets = batch[cfg[TARGET]].unsqueeze(dim=-1).to(device)
-            preds = model(
+            preds, mod1_embs, mod2_embs = model(
                 modality1_input_ids=mod1_input_ids,
                 modality1_attention_mask=mod1_attention_mask,
                 modality2_input_ids=mod2_input_ids,
@@ -107,7 +140,11 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
                 file_path=os.path.join(cfg["emb_path"], "training"),
                 save_emb=should_save_emb,
             )
-            loss = criterion(preds, targets.float())
+            loss_bce = criterion(preds, targets.float())
+            loss_contrastive = contrastive_loss(mod1_embs, mod2_embs, targets)
+            loss = (
+                1 - CONTRASTIVE_WEIGHT
+            ) * loss_bce + CONTRASTIVE_WEIGHT * loss_contrastive
             loss.backward()
             train_loss += loss.item()
             step += 1
@@ -116,8 +153,11 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
                 optimizer.zero_grad()
             scheduler.step()
 
-            if step % 300 == 0:
+            if step % 50 == 0:
                 wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]})
+                wandb.log({"training_loss": loss.item()})
+                wandb.log({"contrastive_loss": loss_contrastive.item()})
+
         train_loss /= len(train_dataloader)
 
         # save_model_trainable_part(model, f"trained_classification_1M_epoch_{epoch}.pth")
@@ -138,7 +178,7 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
                     batch[cfg[CACHE_MOD2_KEY]] if cfg[CACHE_MOD2_KEY] else None
                 )
                 targets = batch[cfg[TARGET]].unsqueeze(dim=-1).to(device)
-                preds = model(
+                preds, mod1_embs, mod2_embs = model(
                     modality1_input_ids=mod1_input_ids,
                     modality1_attention_mask=mod1_attention_mask,
                     modality2_input_ids=mod2_input_ids,
@@ -149,12 +189,16 @@ def train_model(model, train_dataloader, val_dataloader, cfg, device):
                     file_path=os.path.join(cfg["emb_path"], "validation"),
                     save_emb=should_save_emb,
                 )
-                loss = criterion(preds, targets.float())
+                loss_bce = criterion(preds, targets.float())
+                loss_contrastive = contrastive_loss(mod1_embs, mod2_embs, targets)
+                loss = (
+                    1 - CONTRASTIVE_WEIGHT
+                ) * loss_bce + CONTRASTIVE_WEIGHT * loss_contrastive
                 val_loss += loss.item()
 
         val_loss /= len(val_dataloader)
-        wandb.log({"val_loss": val_loss})
-        wandb.log({"train_loss": train_loss})
+        wandb.log({"val_loss_epoch": val_loss})
+        wandb.log({"train_loss_epoch": train_loss})
         logging.info(
             f"Epoch: {epoch} - Train loss: {train_loss} - Validation loss: {val_loss}"
         )
@@ -179,7 +223,7 @@ def evaluate_model_classification(model, test_dataloader, cfg, device):
                 batch[cfg[CACHE_MOD2_KEY]] if cfg[CACHE_MOD2_KEY] else None
             )
             targets = batch[cfg[TARGET]].unsqueeze(dim=-1).to(device)
-            preds = model(
+            preds, _, _ = model(
                 modality1_input_ids=mod1_input_ids,
                 modality1_attention_mask=mod1_attention_mask,
                 modality2_input_ids=mod2_input_ids,

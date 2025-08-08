@@ -226,7 +226,7 @@ class BiCrossAttentionModel(nn.Module):
             self._save_embeddings_to_dir(combined, targets, file_path)
 
         logits = self.ffn_head(combined)
-        return logits
+        return logits, modality1_embedding, modality2_embedding
 
     def _save_embeddings_to_dir(self, embeddings, target, file):
         os.makedirs(file, exist_ok=True)
